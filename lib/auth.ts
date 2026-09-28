@@ -74,15 +74,3 @@ export function displayName(
   if (email) return email.split("@")[0];
   return fallback;
 }
-
-export function getInitials(value: string): string {
-  const parts = value
-    .replace(/[@._-]+/g, " ")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
-
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
-}

@@ -127,6 +127,7 @@ export interface Database {
           p_amount: number;
           p_type: CreditTransactionType;
           p_description?: string;
+          p_metadata?: Json;
         };
         Returns: number;
       };

@@ -12,6 +12,8 @@ import {
   Zap,
 } from "lucide-react";
 
+import { PLAN_CREDITS, PLAN_PRICE } from "@/lib/plans";
+
 export type IconType = React.ComponentType<{ className?: string }>;
 
 export interface NavLink {
@@ -135,9 +137,9 @@ export const pricingTiers: PricingTier[] = [
     id: "free",
     name: "Free",
     description: "Kick the tires and ship your first flow.",
-    price: 0,
+    price: PLAN_PRICE.free,
     interval: "forever",
-    credits: 100,
+    credits: PLAN_CREDITS.free,
     highlighted: false,
     cta: "Start for free",
     href: "/signup",
@@ -152,9 +154,9 @@ export const pricingTiers: PricingTier[] = [
     id: "starter",
     name: "Starter",
     description: "For indie builders getting real usage.",
-    price: 19,
+    price: PLAN_PRICE.starter,
     interval: "month",
-    credits: 2000,
+    credits: PLAN_CREDITS.starter,
     highlighted: true,
     cta: "Upgrade to Starter",
     href: "/signup?plan=starter",
@@ -170,9 +172,9 @@ export const pricingTiers: PricingTier[] = [
     id: "pro",
     name: "Pro",
     description: "Scale a paid product without limits.",
-    price: 49,
+    price: PLAN_PRICE.pro,
     interval: "month",
-    credits: 10000,
+    credits: PLAN_CREDITS.pro,
     highlighted: false,
     cta: "Upgrade to Pro",
     href: "/signup?plan=pro",

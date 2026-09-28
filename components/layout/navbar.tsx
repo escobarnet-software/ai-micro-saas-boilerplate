@@ -6,6 +6,7 @@ import { ArrowRight, LayoutDashboard, Menu, Sparkles, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/shared/logo";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { mainNav } from "@/lib/site";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
@@ -90,6 +91,7 @@ export function Navbar({ isAuthenticated }: NavbarProps) {
         </div>
 
         <div className="hidden items-center gap-2 md:flex">
+          <ThemeToggle />
           {authenticated ? (
             <Button asChild size="sm">
               <Link href="/dashboard">
@@ -162,6 +164,11 @@ export function Navbar({ isAuthenticated }: NavbarProps) {
                   </Button>
                 </>
               )}
+            </div>
+
+            <div className="mt-3 flex items-center justify-between border-t border-border/80 px-3 pt-3">
+              <span className="text-xs text-muted-foreground">Appearance</span>
+              <ThemeToggle />
             </div>
           </nav>
         </div>
