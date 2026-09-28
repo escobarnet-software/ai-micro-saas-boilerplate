@@ -73,7 +73,7 @@ Built with **Next.js 14 (App Router)**, **TypeScript (strict)**, **Tailwind CSS*
 | Styling | Tailwind CSS 3 + shadcn/ui + `tailwindcss-animate` |
 | Auth & DB | Supabase (Postgres, Auth, RLS) via `@supabase/ssr` |
 | Payments | Stripe Checkout, Billing Portal, Webhooks |
-| AI | OpenAI Node SDK (`gpt-4o-mini` by default) |
+| AI | Groq by default (`openai/gpt-oss-120b`), switchable to Google Gemini or OpenAI |
 | Forms | React Hook Form + Zod on the client, Server Actions on the server |
 | UX | `sonner` toasts, `lucide-react` icons |
 
@@ -106,9 +106,13 @@ billing.
 | `NEXT_PUBLIC_SUPABASE_URL` | auth, dashboard | Project URL from Supabase settings |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | auth, dashboard | Public anon key (safe in the browser) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Stripe webhook | **Server only** — never expose it |
-| `OPENAI_API_KEY` | generation | `sk-…` |
-| `OPENAI_MODEL` | generation | Defaults to `gpt-4o-mini` |
-| `OPENAI_MAX_TOKENS` | generation | Defaults to `1024` |
+| `AI_PROVIDER` | generation | `groq` (default) \| `gemini` \| `openai` |
+| `GROQ_API_KEY` | generation | `gsk_…` — free tier, no card |
+| `GEMINI_API_KEY` | generation | `AIza…` — only when `AI_PROVIDER=gemini` |
+| `OPENAI_API_KEY` | generation | `sk-…` — only when `AI_PROVIDER=openai` |
+| `AI_MODEL` | generation | Optional: overrides the provider default |
+| `AI_MAX_TOKENS` | generation | Defaults to `1024` |
+| `AI_TIMEOUT_MS` | generation | Defaults to `45000` |
 | `STRIPE_SECRET_KEY` | billing | `sk_test_…` / `sk_live_…` |
 | `STRIPE_WEBHOOK_SECRET` | billing | `whsec_…` from the webhook endpoint |
 | `STRIPE_PRICE_ID_STARTER` | billing | Price for the $19 plan |
@@ -119,9 +123,9 @@ All access goes through `lib/env.ts`, which throws a descriptive
 `MissingEnvError` instead of returning `undefined`:
 
 ```ts
-import { getOpenAIConfig } from "@/lib/env";
+import { getAiConfig } from "@/lib/env";
 
-const { apiKey, model } = getOpenAIConfig(); // throws if unset
+const { provider, apiKey, model } = getAiConfig(); // throws if the key is unset
 ```
 
 ---
@@ -192,18 +196,54 @@ same reference twice, so Stripe retries can never double-credit an account.
 
 ---
 
-## OpenAI setup
+## AI provider setup
 
-1. Create a key at [platform.openai.com](https://platform.openai.com/api-keys)
-   and set `OPENAI_API_KEY`.
-2. Adjust `OPENAI_MODEL` / `OPENAI_MAX_TOKENS` if you prefer another model.
-3. Swap providers in a single file — `lib/ai/provider.ts` is the only module
-   that talks to a model:
+Groq is the default: it has a **free tier that needs no credit card**, and its
+API is OpenAI-compatible.
+
+### Groq (recommended, free)
+
+1. Create a key at [console.groq.com/keys](https://console.groq.com/keys).
+2. Put it in `.env.local`:
+
+   ```bash
+   AI_PROVIDER=groq
+   GROQ_API_KEY=gsk_...
+   ```
+
+3. Default model: `openai/gpt-oss-120b`. Other production models:
+   `openai/gpt-oss-20b` (faster, cheaper), `llama-3.3-70b-versatile`,
+   `llama-3.1-8b-instant`. Override with `AI_MODEL`.
+4. Free-tier limits are per minute: if you hit them, the API answers `429` and
+   the message tells you to wait (the credits are refunded automatically).
+
+### Google Gemini
+
+1. Create a key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey).
+2. Set `AI_PROVIDER=gemini` and `GEMINI_API_KEY=AIza...`.
+3. Default model: `gemini-3.8-flash`. Any id from the
+   [model list](https://ai.google.dev/gemini-api/docs/models) works via `AI_MODEL`.
+
+### OpenAI
+
+Set `AI_PROVIDER=openai` and `OPENAI_API_KEY=sk-...` (default `gpt-4o-mini`).
+An account with no balance answers `429 insufficient_quota`; the API turns that
+into *"the account is out of credit"* rather than a rate-limit message.
+
+### How it is wired
+
+`lib/ai/provider.ts` is the only module that talks to a model, and it uses plain
+`fetch` (no vendor SDK) so every provider shares one timeout and error path:
 
 ```ts
 const result = await generateCompletion({ prompt, temperature: 0.4 });
 // { content, model, tokensUsed }
 ```
+
+Provider metadata (key variable, base URL, default model, docs link) lives in
+`AI_PROVIDERS` in `lib/env.ts`: adding one is an entry there plus a branch in the
+provider module. `"AI_PROVIDER is \"groq\" but GROQ_API_KEY is unset…"` is what
+you get from `/api/health` when the key is missing.
 
 ---
 
@@ -217,6 +257,10 @@ const result = await generateCompletion({ prompt, temperature: 0.4 });
 | The dashboard is empty right after setup | Expected: the signup trigger only fires for new accounts, and `supabase/setup.sql` backfills the ones that already existed. |
 | Logged out on every reload | Session cookies are refreshed by the middleware, which now copies them onto its redirects. Make sure `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are present in the environment that **builds** the app (Next inlines them). |
 | Generation fails with 402 | Out of credits: `consume_credits` raised `insufficient_credits`. Top up with the SQL snippet at the end of `supabase/setup.sql`, or subscribe. |
+| Generation says **"account is out of credit (quota exceeded)"** | Your provider has no balance. This is not a rate limit: switch `AI_PROVIDER=groq` (free tier) or add billing. |
+| Generation says **"rate limiting requests (429)"** | You are hitting the provider's per-minute limit. Wait a few seconds; credits are refunded on every failure. |
+| Generation says **"API key was rejected (401)"** | The key for the *selected* provider is missing, truncated or revoked. `/api/health` shows which variable it expects and the placeholder it found. |
+| Generation says **"model was not found (404)"** | `AI_MODEL` does not exist for the selected provider. Remove it to use the default. |
 | `?next=` misbehaving | Every `next` value goes through `safeRedirectPath()` (`lib/routes.ts`), which rejects absolute URLs, `//evil.com` and the auth routes themselves. |
 
 ---
@@ -232,7 +276,7 @@ app/
   (dashboard)/            # protected shell, force-dynamic
     dashboard/            # overview | generator | billing | settings
   api/
-    generate/route.ts     # POST — credits + OpenAI
+    generate/route.ts     # POST — credits + AI provider
     stripe/
       checkout/route.ts   # POST — subscription checkout session
       portal/route.ts     # POST — billing portal session
@@ -279,7 +323,7 @@ ledger.
    is a single atomic `UPDATE … WHERE credits >= amount`, so two parallel
    requests can never overdraw the account. It returns `insufficient_credits`
    when the balance is too low and the API answers `402`.
-3. **Failure** → if OpenAI errors or times out, the route inserts a `failed`
+3. **Failure** → if the provider errors or times out, the route inserts a `failed`
    generation row and calls `refund_credits`, so users never pay for nothing.
 4. **Subscription** → Stripe webhooks call `grant_credits(plan quota, reference)`
    with a unique reference. Replays are ignored, guaranteeing exactly-once
@@ -345,7 +389,7 @@ colour is a two-line change:
 3. Add `https://your-domain.com/auth/callback` to Supabase redirect URLs.
 4. Create the Stripe webhook endpoint and copy its signing secret.
 5. Deploy — `middleware.ts` runs on the edge, dashboard and API routes stay on
-   the Node.js runtime because they use cookies, the OpenAI SDK and Stripe.
+   the Node.js runtime because they use cookies, outbound AI calls and Stripe.
 
 ---
 

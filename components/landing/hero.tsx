@@ -31,7 +31,7 @@ export function Hero() {
           className="animate-fade-in gap-2 rounded-full border-border/80 bg-card/50 px-3 py-1 text-xs font-medium text-muted-foreground backdrop-blur"
         >
           <Sparkles className="size-3.5 text-primary" />
-          Next.js 14 · Supabase · Stripe · OpenAI
+          Next.js 14 · Supabase · Stripe · Groq
         </Badge>
 
         <h1 className="mt-6 max-w-4xl animate-fade-up text-balance text-4xl font-semibold leading-[1.05] tracking-tight sm:text-6xl lg:text-7xl">

@@ -70,7 +70,7 @@ export function Footer() {
             © {new Date().getFullYear()} {siteConfig.name}. All rights reserved.
           </p>
           <p className="font-mono">
-            Next.js 14 · Supabase · Stripe · OpenAI
+            Next.js 14 · Supabase · Stripe · Groq
           </p>
         </div>
       </div>

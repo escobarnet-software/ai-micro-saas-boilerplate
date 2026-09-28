@@ -32,6 +32,8 @@ export const metadata: Metadata = {
     "Next.js 14",
     "Supabase",
     "Stripe",
+    "Groq",
+    "Gemini",
     "OpenAI",
     "micro-SaaS",
   ],

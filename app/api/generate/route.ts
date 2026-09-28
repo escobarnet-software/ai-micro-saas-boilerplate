@@ -134,9 +134,8 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof MissingEnvError) {
       await refund(user.id, "Configuration error");
-      return fail(
-        apiFailure("CONFIGURATION_ERROR", "The OpenAI key is not configured.")
-      );
+      // The message names the exact environment variable that is missing.
+      return fail(apiFailure("CONFIGURATION_ERROR", error.message));
     }
 
     const message =

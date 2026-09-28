@@ -27,7 +27,8 @@ export default function AuthLayout({
             <span className="text-gradient">already handled</span>
           </h2>
           <p className="text-sm leading-relaxed text-muted-foreground">
-            Auth sessions, credit ledger, Stripe webhooks and an OpenAI route —
+            Auth sessions, credit ledger, Stripe webhooks and a Groq-powered
+            generation route —
             wired, typed and ready to ship.
           </p>
           <ul className="grid grid-cols-2 gap-3 text-xs text-muted-foreground">

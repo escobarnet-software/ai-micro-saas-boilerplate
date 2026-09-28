@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { hasSupabaseEnv } from "@/lib/env";
+import { describeAiConfig, hasSupabaseEnv } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
 import { apiSuccess } from "@/types/api";
 
@@ -62,6 +62,10 @@ const isServiceRoleKey = (value: string) =>
   value.startsWith("sb_secret_") || (value.startsWith("eyJ") && value.length > 100);
 const isOpenAiKey = (value: string) =>
   value.startsWith("sk-") && value.length > 20;
+const isGroqKey = (value: string) =>
+  value.startsWith("gsk_") && value.length > 20;
+const isGeminiKey = (value: string) =>
+  value.startsWith("AIza") && value.length > 20;
 const isStripeSecretKey = (value: string) =>
   value.startsWith("sk_") && value.length > 20;
 const isWebhookSecret = (value: string) =>
@@ -87,8 +91,11 @@ export async function GET() {
       "SUPABASE_SERVICE_ROLE_KEY",
       isServiceRoleKey
     ),
+    AI_PROVIDER: checkEnv("AI_PROVIDER", () => true),
+    AI_MODEL: checkEnv("AI_MODEL", () => true),
+    GROQ_API_KEY: checkEnv("GROQ_API_KEY", isGroqKey),
+    GEMINI_API_KEY: checkEnv("GEMINI_API_KEY", isGeminiKey),
     OPENAI_API_KEY: checkEnv("OPENAI_API_KEY", isOpenAiKey),
-    OPENAI_MODEL: checkEnv("OPENAI_MODEL", () => true),
     STRIPE_SECRET_KEY: checkEnv("STRIPE_SECRET_KEY", isStripeSecretKey),
     STRIPE_WEBHOOK_SECRET: checkEnv("STRIPE_WEBHOOK_SECRET", isWebhookSecret),
     STRIPE_PRICE_ID_STARTER: checkEnv("STRIPE_PRICE_ID_STARTER", isPriceId),
@@ -246,7 +253,24 @@ export async function GET() {
     "SUPABASE_SERVICE_ROLE_KEY",
     "the Stripe webhook cannot sync plans or grant credits (the dashboard and /api/generate work without it)."
   );
-  describeEnv("OPENAI_API_KEY", "/api/generate returns a configuration error.");
+  // Only the key of the *selected* provider matters.
+  const ai = describeAiConfig();
+  const providerKey = {
+    groq: env.GROQ_API_KEY,
+    gemini: env.GEMINI_API_KEY,
+    openai: env.OPENAI_API_KEY,
+  }[ai.provider];
+
+  if (!ai.keySet) {
+    hints.push(
+      `AI_PROVIDER is "${ai.provider}" but ${ai.keyEnv} is unset: create a free key at ${ai.docsUrl} and add it to .env.local. /api/generate returns a configuration error until then.`
+    );
+  } else if (!providerKey.valid) {
+    hints.push(
+      `${ai.keyEnv} is set but does not look like a real ${ai.label} key (expected the "${ai.keyPrefix}" prefix): /api/generate will fail with "API key was rejected". Create one at ${ai.docsUrl}.`
+    );
+  }
+
   describeEnv("STRIPE_SECRET_KEY", "checkout and the billing portal will fail.");
   describeEnv("STRIPE_WEBHOOK_SECRET", "the webhook signature check will fail.");
   describeEnv(
@@ -266,6 +290,13 @@ export async function GET() {
         !missingFunction("consume_credits") &&
         (!user || profileVisible),
       env,
+      ai: {
+        provider: ai.provider,
+        label: ai.label,
+        model: ai.model,
+        keyEnv: ai.keyEnv,
+        keySet: ai.keySet,
+      },
       tables,
       functions,
       auth: { signedIn: Boolean(user), profileVisible, plan, credits },
