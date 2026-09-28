@@ -3,6 +3,7 @@ import type { User } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
 
 import { hasSupabaseEnv } from "@/lib/env";
+import { buildFallbackProfile } from "@/lib/profile";
 import { ROUTES, SIGNUP_BONUS_CREDITS } from "@/lib/routes";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -43,22 +44,16 @@ export const getCurrentProfile = cache(async (): Promise<Profile | null> => {
   return data ?? null;
 });
 
-/**
- * Thrown when an authenticated user has no profile row and it could not be
- * created. Dashboard pages surface this as an error boundary instead of a
- * redirect: an authenticated request must never be sent to an auth route,
- * because the middleware bounces those straight back to `/dashboard` and the
- * two rules cancel out into an endless ERR_TOO_MANY_REDIRECTS loop.
- */
-export class ProfileUnavailableError extends Error {
-  constructor(readonly detail?: string) {
-    super(
-      detail
-        ? `Your profile is unavailable: ${detail}`
-        : "Your profile is unavailable. Apply the database schema (supabase/setup.sql) and reload this page."
-    );
-    this.name = "ProfileUnavailableError";
-  }
+export interface ProfileContext {
+  user: User;
+  profile: Profile;
+  /**
+   * Set when the profile row does not exist in the database and could not be
+   * created — normally because the schema has not been applied yet. The
+   * workspace then renders in a degraded, read-only state and the shell shows a
+   * setup banner instead of failing.
+   */
+  setupIssue: string | null;
 }
 
 /**
@@ -167,31 +162,33 @@ export async function requireUser(): Promise<User> {
  * Returns the profile of the authenticated user, creating the row on the fly
  * for accounts that signed up before the database trigger existed.
  *
- * This never redirects to an auth route on purpose: doing so would fight with
- * the middleware guard (`/login` → `/dashboard` for signed-in users) and loop
- * forever. Callers render an error boundary when the profile really cannot be
- * loaded (for example when the schema has not been applied yet).
+ * It never redirects and never fails hard: a missing or half-applied schema
+ * degrades into a read-only workspace plus a setup banner. That is deliberate —
+ * redirecting an authenticated request to `/login` loops forever (the
+ * middleware sends it back), and a blank error page tells the user nothing.
  */
-export async function requireProfile(): Promise<{
-  user: User;
-  profile: Profile;
-}> {
+export async function requireProfile(): Promise<ProfileContext> {
   const user = await requireUser();
 
   const existing = await getCurrentProfile();
   if (existing) {
-    return { user, profile: existing };
+    return { user, profile: existing, setupIssue: null };
   }
 
   const created = await bootstrapProfile(user);
   if ("profile" in created) {
-    return { user, profile: created.profile };
+    return { user, profile: created.profile, setupIssue: null };
   }
 
+  const setupIssue =
+    "Your profile row is missing from the database and could not be created. " +
+    "Run supabase/setup.sql in the Supabase SQL editor, then reload this page.";
+
   console.error(
-    `[auth] could not load or create the profile for ${user.id}: ${created.reason}`
+    `[auth] ${setupIssue} Reason: ${created.reason}. Serving a degraded workspace for ${user.id}.`
   );
-  throw new ProfileUnavailableError(created.reason);
+
+  return { user, profile: buildFallbackProfile(user), setupIssue };
 }
 
 export function displayName(

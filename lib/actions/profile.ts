@@ -45,13 +45,23 @@ export async function updateProfileAction(
     return { status: "error", message: "You are not signed in." };
   }
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("profiles")
     .update({ full_name: parsed.data.fullName })
-    .eq("id", user.id);
+    .eq("id", user.id)
+    .select("id")
+    .maybeSingle();
 
   if (error) {
     return { status: "error", message: "Could not save your profile." };
+  }
+
+  if (!data) {
+    return {
+      status: "error",
+      message:
+        "Your profile row is missing from the database: run supabase/setup.sql, then try again.",
+    };
   }
 
   revalidatePath(ROUTES.settings);

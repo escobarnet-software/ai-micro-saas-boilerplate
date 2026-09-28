@@ -15,10 +15,11 @@ export const metadata: Metadata = {
 export default async function DashboardLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  const { user, profile } = await requireProfile();
+  const { user, profile, setupIssue } = await requireProfile();
 
   return (
     <DashboardShell
+      setupIssue={setupIssue}
       account={{
         name: displayName(profile, "Builder"),
         email: profile.email ?? user.email ?? "",

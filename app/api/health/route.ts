@@ -119,11 +119,24 @@ export async function GET() {
 
   const [profilesProbe, transactionsProbe, generationsProbe] =
     await Promise.all([
-      supabase.from("profiles").select("id", { count: "exact", head: true }),
+      supabase
+        .from("profiles")
+        .select(
+          "id, email, full_name, avatar_url, plan, credits, stripe_customer_id, stripe_subscription_id, created_at, updated_at",
+          { count: "exact", head: true }
+        ),
       supabase
         .from("credit_transactions")
-        .select("id", { count: "exact", head: true }),
-      supabase.from("generations").select("id", { count: "exact", head: true }),
+        .select("id, user_id, amount, type, description, metadata, created_at", {
+          count: "exact",
+          head: true,
+        }),
+      supabase
+        .from("generations")
+        .select(
+          "id, user_id, prompt, output, model, tokens_used, credits_used, status, error, created_at",
+          { count: "exact", head: true }
+        ),
     ]);
 
   const tables: TableCheck[] = [
@@ -179,9 +192,18 @@ export async function GET() {
   const missingFunction = (name: string) =>
     functions.find((entry) => entry.name === name)?.state === "missing";
 
-  if (!tablesOk) {
+  const brokenTables = tables.filter((table) => !table.ok);
+  const columnMismatch = brokenTables.some((table) =>
+    /column/i.test(table.error ?? "")
+  );
+
+  if (brokenTables.length > 0) {
     hints.push(
-      "The public schema is missing or unreachable: paste supabase/setup.sql into the Supabase SQL editor and run it (it is idempotent)."
+      columnMismatch
+        ? `A table exists but its columns do not match the schema (${brokenTables
+            .map((table) => table.table)
+            .join(", ")}). This is not a fresh database: drop the conflicting tables (or fix them by hand) and run supabase/setup.sql again.`
+        : "The public schema is missing or unreachable: paste supabase/setup.sql into the Supabase SQL editor and run it (it is idempotent)."
     );
   }
   if (tablesOk && missingFunction("bootstrap_profile")) {

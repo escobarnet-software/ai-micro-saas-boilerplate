@@ -303,10 +303,22 @@ begin
 end;
 $$;
 
-drop trigger if exists on_auth_user_created on auth.users;
-create trigger on_auth_user_created
-  after insert on auth.users
-  for each row execute function public.handle_new_user();
+-- Some projects restrict DDL on the `auth` schema (the tables there are owned
+-- by `supabase_auth_admin`). Warn instead of aborting the rest of the script:
+-- `bootstrap_profile()` still gives every account a profile row on first login.
+do $do$
+begin
+  execute $ddl$
+    drop trigger if exists on_auth_user_created on auth.users;
+    create trigger on_auth_user_created
+      after insert on auth.users
+      for each row execute function public.handle_new_user();
+  $ddl$;
+exception
+  when insufficient_privilege then
+    raise warning 'setup.sql: no permission to create the trigger on auth.users. New signups will get their profile row from bootstrap_profile() on their first login instead.';
+end;
+$do$;
 
 -- 7. Row level security -----------------------------------------------------
 alter table public.profiles enable row level security;

@@ -76,6 +76,19 @@ export async function POST(request: NextRequest) {
   );
 
   if (chargeError) {
+    // The schema is not applied yet: consume_credits() does not exist.
+    if (
+      chargeError.code === "PGRST202" ||
+      /could not find the function/i.test(chargeError.message)
+    ) {
+      return fail(
+        apiFailure(
+          "CONFIGURATION_ERROR",
+          "The database schema is incomplete: run supabase/setup.sql so that consume_credits() exists."
+        )
+      );
+    }
+
     if (chargeError.message.includes("insufficient_credits")) {
       return fail(
         apiFailure(

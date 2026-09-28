@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  AlertTriangle,
   CreditCard,
   LayoutDashboard,
   Menu,
@@ -150,10 +151,16 @@ function SidebarContent({ account, onNavigate }: SidebarProps) {
 }
 interface DashboardShellProps {
   account: AccountSummary;
+  /** Set when the database schema is not applied: shows a setup banner. */
+  setupIssue?: string | null;
   children: React.ReactNode;
 }
 
-export function DashboardShell({ account, children }: DashboardShellProps) {
+export function DashboardShell({
+  account,
+  setupIssue,
+  children,
+}: DashboardShellProps) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
 
@@ -239,7 +246,38 @@ export function DashboardShell({ account, children }: DashboardShellProps) {
           </div>
         </header>
 
-        <main className="flex-1 px-4 py-8 lg:px-8">{children}</main>
+        <main className="flex-1 px-4 py-8 lg:px-8">
+          {setupIssue ? <SetupBanner message={setupIssue} /> : null}
+          {children}
+        </main>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Shown when the workspace is running without a database profile row: the app
+ * stays usable (read-only) while the schema is applied.
+ */
+function SetupBanner({ message }: { message: string }) {
+  return (
+    <div
+      role="alert"
+      className="mb-8 flex items-start gap-3 rounded-xl border border-[hsl(38_92%_50%/0.35)] bg-[hsl(38_92%_50%/0.08)] p-4"
+    >
+      <AlertTriangle className="mt-0.5 size-4 shrink-0 text-[hsl(38_92%_55%)]" />
+      <div className="min-w-0 space-y-1.5 text-sm">
+        <p className="font-medium">Database setup incomplete</p>
+        <p className="leading-relaxed text-muted-foreground">{message}</p>
+        <p className="leading-relaxed text-muted-foreground">
+          Credits and generation stay disabled until then. Full checklist:{" "}
+          <Link
+            href="/api/health"
+            className="font-medium text-foreground underline-offset-4 hover:underline"
+          >
+            /api/health
+          </Link>
+        </p>
       </div>
     </div>
   );
