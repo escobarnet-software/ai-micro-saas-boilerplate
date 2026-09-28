@@ -51,22 +51,49 @@ export const getCurrentProfile = cache(async (): Promise<Profile | null> => {
  * two rules cancel out into an endless ERR_TOO_MANY_REDIRECTS loop.
  */
 export class ProfileUnavailableError extends Error {
-  constructor() {
+  constructor(readonly detail?: string) {
     super(
-      "Your profile is unavailable. Apply the database schema (supabase/setup.sql) and reload this page."
+      detail
+        ? `Your profile is unavailable: ${detail}`
+        : "Your profile is unavailable. Apply the database schema (supabase/setup.sql) and reload this page."
     );
     this.name = "ProfileUnavailableError";
   }
 }
 
 /**
- * Mirrors the `handle_new_user` database trigger for accounts that predate it
- * (the trigger only fires on new signups). Runs with the service role, so it is
- * the only place allowed to create the row, and it never redirects: when the
- * schema or the service role key is missing it returns null and the caller
- * fails loudly.
+ * Creates the missing profile row for the authenticated user.
+ *
+ * Two attempts, cheapest first:
+ *
+ *  1. `bootstrap_profile()` — a `security definer` RPC that runs with the user's
+ *     own session, so it needs nothing but the schema. This is the normal path.
+ *  2. A service-role insert, for databases that predate the RPC.
+ *
+ * Every failure reason is collected so the caller can report what is actually
+ * wrong instead of a generic message.
  */
-async function createMissingProfile(user: User): Promise<Profile | null> {
+async function bootstrapProfile(
+  user: User
+): Promise<{ profile: Profile } | { reason: string }> {
+  const reasons: string[] = [];
+
+  try {
+    const supabase = createClient();
+    const { data, error } = await supabase.rpc("bootstrap_profile", {});
+
+    if (!error && data) {
+      console.warn(
+        `[auth] created the missing profile for ${user.id} via bootstrap_profile()`
+      );
+      return { profile: data };
+    }
+
+    reasons.push(error ? error.message : "bootstrap_profile() returned no row");
+  } catch (error) {
+    reasons.push(error instanceof Error ? error.message : String(error));
+  }
+
   const metadata = (user.user_metadata ?? {}) as Record<string, unknown>;
   const fullName =
     typeof metadata.full_name === "string"
@@ -89,16 +116,11 @@ async function createMissingProfile(user: User): Promise<Profile | null> {
       credits: 0,
     });
 
-    // 23505 = unique violation: a signup trigger or a parallel request won the
-    // race, which is perfectly fine.
+    // 23505 = unique violation: the signup trigger or a parallel request won the
+    // race, which is exactly what we want.
     if (insertError && insertError.code !== "23505") {
-      console.error(
-        `[auth] could not create the missing profile: ${insertError.message}`
-      );
-      return null;
-    }
-
-    if (!insertError) {
+      reasons.push(insertError.message);
+    } else if (!insertError) {
       // The same bonus SIGNUP_BONUS_CREDITS the trigger grants, recorded in the
       // ledger so the credit history stays complete.
       const { error: grantError } = await admin.rpc("grant_credits", {
@@ -121,15 +143,16 @@ async function createMissingProfile(user: User): Promise<Profile | null> {
       .eq("id", user.id)
       .maybeSingle();
 
-    return data ?? null;
+    if (data) {
+      return { profile: data };
+    }
+
+    reasons.push("the service-role insert returned no row");
   } catch (error) {
-    console.error(
-      `[auth] profile bootstrap failed: ${
-        error instanceof Error ? error.message : String(error)
-      }`
-    );
-    return null;
+    reasons.push(error instanceof Error ? error.message : String(error));
   }
+
+  return { reason: reasons.join(" | ") };
 }
 
 export async function requireUser(): Promise<User> {
@@ -160,12 +183,15 @@ export async function requireProfile(): Promise<{
     return { user, profile: existing };
   }
 
-  const created = await createMissingProfile(user);
-  if (!created) {
-    throw new ProfileUnavailableError();
+  const created = await bootstrapProfile(user);
+  if ("profile" in created) {
+    return { user, profile: created.profile };
   }
 
-  return { user, profile: created };
+  console.error(
+    `[auth] could not load or create the profile for ${user.id}: ${created.reason}`
+  );
+  throw new ProfileUnavailableError(created.reason);
 }
 
 export function displayName(

@@ -117,6 +117,10 @@ export interface Database {
     };
     Views: { [_ in never]: never };
     Functions: {
+      bootstrap_profile: {
+        Args: Record<string, never>;
+        Returns: Database["public"]["Tables"]["profiles"]["Row"];
+      };
       consume_credits: {
         Args: { p_amount: number; p_description?: string };
         Returns: number;

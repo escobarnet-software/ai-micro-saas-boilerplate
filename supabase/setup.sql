@@ -209,6 +209,68 @@ grant execute on function public.consume_credits(integer, text) to authenticated
 grant execute on function public.grant_credits(uuid, integer, text, text, jsonb) to service_role;
 grant execute on function public.refund_credits(uuid, integer, text) to service_role;
 
+-- Self-service profile bootstrap: creates the caller's own row (plus the signup
+-- bonus, exactly once) when it is missing. `security definer` and scoped to
+-- auth.uid(), so the dashboard heals itself without the service role key.
+create or replace function public.bootstrap_profile()
+returns public.profiles
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_profile public.profiles;
+  v_bonus constant integer := 100;
+begin
+  if v_user_id is null then
+    raise exception 'bootstrap_profile: not authenticated' using errcode = '28000';
+  end if;
+
+  select * into v_profile from public.profiles where id = v_user_id;
+  if found then
+    return v_profile;
+  end if;
+
+  insert into public.profiles (id, email, full_name, avatar_url, plan, credits)
+  select
+    u.id,
+    u.email,
+    coalesce(u.raw_user_meta_data ->> 'full_name', u.raw_user_meta_data ->> 'name'),
+    u.raw_user_meta_data ->> 'avatar_url',
+    'free',
+    0
+  from auth.users u
+  where u.id = v_user_id
+  on conflict (id) do nothing;
+
+  -- Guarded by the unique reference index, so the bonus is granted once.
+  with granted as (
+    insert into public.credit_transactions (user_id, amount, type, description, metadata)
+    values (
+      v_user_id,
+      v_bonus,
+      'grant',
+      'Signup bonus credits',
+      jsonb_build_object('reference', 'signup:' || v_user_id::text)
+    )
+    on conflict do nothing
+    returning 1
+  )
+  update public.profiles
+     set credits = credits + v_bonus,
+         updated_at = now()
+   where id = v_user_id
+     and exists (select 1 from granted);
+
+  select * into v_profile from public.profiles where id = v_user_id;
+  return v_profile;
+end;
+$$;
+
+revoke all on function public.bootstrap_profile() from public, anon;
+grant execute on function public.bootstrap_profile() to authenticated;
+
 -- 6. New user bootstrap -----------------------------------------------------
 -- Creates the profile row and the 100-credit signup bonus on every signup.
 create or replace function public.handle_new_user()

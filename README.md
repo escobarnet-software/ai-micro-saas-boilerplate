@@ -143,6 +143,7 @@ const { apiKey, model } = getOpenAIConfig(); // throws if unset
    | `supabase/migrations/0002_credit_functions.sql` | `grant_credits`, `consume_credits`, `refund_credits` + idempotency index |
    | `supabase/migrations/0003_new_user_trigger.sql` | Profile row + 100 bonus credits on sign up |
    | `supabase/migrations/0004_rls_policies.sql` | Row Level Security for every table |
+   | `supabase/migrations/0005_bootstrap_profile.sql` | `bootstrap_profile()` RPC: creates a missing profile row for the signed-in user |
 
 3. **Copy the keys** from *Project settings → API* into `.env.local`.
 4. **Auth settings** (*Authentication → Providers*):
@@ -211,7 +212,7 @@ const result = await generateCompletion({ prompt, temperature: 0.4 });
 | Symptom | Cause and fix |
 | --- | --- |
 | `ERR_TOO_MANY_REDIRECTS` on `/dashboard` | Historical: the guard sent signed-in users without a profile row to `/login`, and the middleware then sent them straight back to `/dashboard`. `requireProfile()` no longer redirects — it creates the missing row (`createMissingProfile`) — and the middleware skips its "signed in, go to the dashboard" bounce whenever the URL carries `error` or `next`. If it still happens, run `supabase/setup.sql` (idempotent) and confirm your account exists in `public.profiles`. |
-| "This page could not be loaded" | The error boundary in `app/error.tsx` catching a server failure. Apply the schema, fill in `.env.local`, then press **Try again**; the reference digest is in the server logs. |
+| "This page could not be loaded" | The error boundary in `app/error.tsx` catching a server failure. Open **`/api/health`**: it reports exactly which table, RPC or environment variable is missing, with the fix. In development the page also prints the raw error and the terminal logs an `[auth] …` line. |
 | The dashboard is empty right after setup | Expected: the signup trigger only fires for new accounts, and `supabase/setup.sql` backfills the ones that already existed. |
 | Logged out on every reload | Session cookies are refreshed by the middleware, which now copies them onto its redirects. Make sure `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are present in the environment that **builds** the app (Next inlines them). |
 | Generation fails with 402 | Out of credits: `consume_credits` raised `insufficient_credits`. Top up with the SQL snippet at the end of `supabase/setup.sql`, or subscribe. |
@@ -302,6 +303,7 @@ All JSON endpoints answer with the same envelope:
 
 | Method | Route | Auth | Body | Status codes |
 | --- | --- | --- | --- | --- |
+| `GET` | `/api/health` | none | — | `200` (booleans only: env, tables, functions, profile) |
 | `POST` | `/api/generate` | session cookie | `{ prompt, temperature? }` | `200`, `401`, `402`, `422`, `429`, `502` |
 | `POST` | `/api/stripe/checkout` | session cookie | `{ plan: "starter" \| "pro" }` | `200`, `401`, `422`, `502` |
 | `POST` | `/api/stripe/portal` | session cookie | — | `200`, `401`, `422`, `502` |

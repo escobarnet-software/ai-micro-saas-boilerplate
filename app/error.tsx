@@ -62,11 +62,11 @@ export default function AppError({
 
         <ul className="space-y-2 rounded-lg border border-border/70 bg-background/40 p-4 text-sm text-muted-foreground">
           <li>
-            The schema is applied: paste{" "}
+            The schema is applied: run{" "}
             <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
               supabase/setup.sql
             </code>{" "}
-            into the Supabase SQL editor.
+            in the Supabase SQL editor (idempotent, safe to run again).
           </li>
           <li>
             <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
@@ -80,9 +80,37 @@ export default function AppError({
             <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
               public.profiles
             </code>
-            : the app creates it on the first dashboard visit.
+            : the app creates it on the first dashboard visit through{" "}
+            <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
+              bootstrap_profile()
+            </code>
+            .
           </li>
         </ul>
+
+        <p className="text-xs leading-relaxed text-muted-foreground/80">
+          The terminal running <span className="font-mono">npm run dev</span> logs
+          the full stack trace and an <span className="font-mono">[auth] …</span>{" "}
+          line with the database error.
+        </p>
+
+        {process.env.NODE_ENV !== "production" && error.message ? (
+          <pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-destructive/30 bg-destructive/5 p-3 font-mono text-[11px] leading-relaxed text-destructive">
+            {error.message}
+          </pre>
+        ) : null}
+
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          Full diagnosis:{" "}
+          <Link
+            href="/api/health"
+            className="font-medium text-foreground underline-offset-4 hover:underline"
+          >
+            /api/health
+          </Link>{" "}
+          — it lists exactly which table, function or environment variable is
+          missing.
+        </p>
 
         {error.digest ? (
           <p className="font-mono text-[11px] text-muted-foreground/70">
