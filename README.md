@@ -129,8 +129,13 @@ const { apiKey, model } = getOpenAIConfig(); // throws if unset
 ## Supabase setup
 
 1. **Create a project** at [database.new](https://database.new).
-2. **Run the migrations.** Either link the CLI (`supabase link` then
-   `supabase db push`) or paste these files, in order, into the SQL editor:
+2. **Create the schema.** Fastest path: open *SQL Editor → New query*, paste
+   [`supabase/setup.sql`](./supabase/setup.sql) and press **Run**. It is
+   idempotent (safe to run twice), applies everything below, and also backfills
+   profile rows for accounts that signed up before the trigger existed.
+
+   Prefer the CLI? Run `supabase link` then `supabase db push` to apply the four
+   versioned migrations in order:
 
    | File | Creates |
    | --- | --- |
