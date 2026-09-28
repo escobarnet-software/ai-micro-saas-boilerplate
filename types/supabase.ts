@@ -122,7 +122,16 @@ export interface Database {
         Returns: Database["public"]["Tables"]["profiles"]["Row"];
       };
       consume_credits: {
-        Args: { p_amount: number; p_description?: string };
+        Args: { p_amount: number; p_description?: string; p_metadata?: Json };
+        Returns: number;
+      };
+      fail_generation: {
+        Args: {
+          p_generation_id: string;
+          p_prompt: string;
+          p_model: string;
+          p_error: string;
+        };
         Returns: number;
       };
       grant_credits: {

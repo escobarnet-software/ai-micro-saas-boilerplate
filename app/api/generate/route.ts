@@ -1,7 +1,9 @@
+import { randomUUID } from "node:crypto";
+
 import { NextResponse, type NextRequest } from "next/server";
 
 import { generateCompletion, AIProviderError } from "@/lib/ai/provider";
-import { MissingEnvError } from "@/lib/env";
+import { getAiConfig, MissingEnvError } from "@/lib/env";
 import { rateLimit } from "@/lib/rate-limit";
 import { CREDIT_COST_PER_GENERATION } from "@/lib/routes";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -66,12 +68,33 @@ export async function POST(request: NextRequest) {
 
   const { prompt, temperature } = parsed.data;
 
-  // 1. Debit credits atomically before hitting the provider.
+  // 0. Fail fast when the provider has no key: never touch the balance.
+  let aiModel = "unknown";
+  try {
+    aiModel = getAiConfig().model;
+  } catch (error) {
+    if (error instanceof MissingEnvError) {
+      return fail(apiFailure("CONFIGURATION_ERROR", error.message));
+    }
+    throw error;
+  }
+
+  // The id is generated up front so the reservation, the history row and the
+  // refund all share the same `generation:<id>` reference (see fail_generation).
+  const generationId = randomUUID();
+
+  // 1. Reserve the credits atomically before calling the provider. Reserving
+  //    first is what stops parallel requests from overdrawing the account; the
+  //    reservation is returned by fail_generation() when the call fails.
   const { data: balance, error: chargeError } = await supabase.rpc(
     "consume_credits",
     {
       p_amount: CREDIT_COST_PER_GENERATION,
       p_description: prompt.slice(0, 120),
+      p_metadata: {
+        reference: `generation:${generationId}`,
+        source: "api/generate",
+      },
     }
   );
 
@@ -84,7 +107,7 @@ export async function POST(request: NextRequest) {
       return fail(
         apiFailure(
           "CONFIGURATION_ERROR",
-          "The database schema is incomplete: run supabase/setup.sql so that consume_credits() exists."
+          "The database schema is incomplete: run supabase/setup.sql so that consume_credits() and fail_generation() exist."
         )
       );
     }
@@ -108,19 +131,29 @@ export async function POST(request: NextRequest) {
 
   const credits = typeof balance === "number" ? balance : 0;
 
-  // 2. Generate, refunding the credits when the provider fails.
+  // 2. Generate. Any failure records the attempt and refunds the reservation.
   try {
     const result = await generateCompletion({ prompt, temperature });
 
-    await supabase.from("generations").insert({
-      user_id: user.id,
-      prompt,
-      output: result.content,
-      model: result.model,
-      tokens_used: result.tokensUsed,
-      credits_used: CREDIT_COST_PER_GENERATION,
-      status: "succeeded",
-    });
+    const { error: historyError } = await supabase
+      .from("generations")
+      .insert({
+        id: generationId,
+        user_id: user.id,
+        prompt,
+        output: result.content,
+        model: result.model,
+        tokens_used: result.tokensUsed,
+        credits_used: CREDIT_COST_PER_GENERATION,
+        status: "succeeded",
+      });
+
+    if (historyError) {
+      // The user already has the content; only the history row is missing.
+      console.error(
+        `[generate] could not store generation ${generationId}: ${historyError.message}`
+      );
+    }
 
     return NextResponse.json(
       apiSuccess({
@@ -132,41 +165,108 @@ export async function POST(request: NextRequest) {
       })
     );
   } catch (error) {
-    if (error instanceof MissingEnvError) {
-      await refund(user.id, "Configuration error");
-      // The message names the exact environment variable that is missing.
-      return fail(apiFailure("CONFIGURATION_ERROR", error.message));
-    }
-
-    const message =
-      error instanceof AIProviderError
+    const isConfigError = error instanceof MissingEnvError;
+    const message = isConfigError
+      ? error.message
+      : error instanceof AIProviderError
         ? error.message
         : "The generation failed unexpectedly.";
 
-    await supabase.from("generations").insert({
-      user_id: user.id,
-      prompt,
-      model: "unknown",
-      credits_used: 0,
-      status: "failed",
-      error: message,
-    });
+    await recordFailure({ generationId, prompt, model: aiModel, message });
 
-    await refund(user.id, `Refund: ${message}`);
-
-    return fail(apiFailure("PROVIDER_ERROR", message));
+    return isConfigError
+      ? fail(apiFailure("CONFIGURATION_ERROR", message))
+      : fail(apiFailure("PROVIDER_ERROR", message));
   }
 }
 
-async function refund(userId: string, description: string) {
+/**
+ * Records the failed attempt and refunds the reserved credit in one database
+ * call, so the ledger can never keep a charge for a failure.
+ *
+ * `fail_generation()` uses the caller's own session — no service-role key
+ * required — and is idempotent: the refund carries a `refund:<generation id>`
+ * reference, which the unique index rejects on a second attempt.
+ */
+async function recordFailure(params: {
+  generationId: string;
+  prompt: string;
+  model: string;
+  message: string;
+}): Promise<void> {
+  const supabase = createClient();
+
+  const { error } = await supabase.rpc("fail_generation", {
+    p_generation_id: params.generationId,
+    p_prompt: params.prompt,
+    p_model: params.model,
+    p_error: params.message,
+  });
+
+  if (!error) {
+    console.warn(
+      `[generate] recorded the failure and refunded generation ${params.generationId}`
+    );
+    return;
+  }
+
+  // Database without migration 0006: fall back to the service role. Unlike the
+  // previous version, every error here is inspected and reported: a swallowed
+  // refund is exactly the bug this fixes.
+  console.error(
+    `[generate] fail_generation() failed for ${params.generationId}: ${error.message}. Trying the service role.`
+  );
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    console.error(
+      `[generate] CREDIT NOT REFUNDED for generation ${params.generationId}: no session.`
+    );
+    return;
+  }
+
+  const history = await supabase.from("generations").insert({
+    id: params.generationId,
+    user_id: user.id,
+    prompt: params.prompt,
+    model: params.model,
+    credits_used: 0,
+    status: "failed",
+    error: params.message,
+  });
+
+  if (history.error) {
+    console.error(
+      `[generate] could not store the failed generation ${params.generationId}: ${history.error.message}`
+    );
+  }
+
   try {
     const admin = createAdminClient();
-    await admin.rpc("refund_credits", {
-      p_user_id: userId,
+    const { error: refundError } = await admin.rpc("refund_credits", {
+      p_user_id: user.id,
       p_amount: CREDIT_COST_PER_GENERATION,
-      p_description: description,
+      p_description: `Refund: generation ${params.generationId}`,
     });
-  } catch {
-    // The ledger entry is best effort: never mask the original error.
+
+    if (refundError) {
+      console.error(
+        `[generate] CREDIT NOT REFUNDED for generation ${params.generationId}: ${refundError.message}`
+      );
+      return;
+    }
+
+    console.warn(
+      `[generate] refunded generation ${params.generationId} through the service role`
+    );
+  } catch (refundError) {
+    console.error(
+      `[generate] CREDIT NOT REFUNDED for generation ${params.generationId}: ${
+        refundError instanceof Error ? refundError.message : String(refundError)
+      }`
+    );
   }
 }

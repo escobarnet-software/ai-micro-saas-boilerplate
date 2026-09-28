@@ -148,6 +148,7 @@ const { provider, apiKey, model } = getAiConfig(); // throws if the key is unset
    | `supabase/migrations/0003_new_user_trigger.sql` | Profile row + 100 bonus credits on sign up |
    | `supabase/migrations/0004_rls_policies.sql` | Row Level Security for every table |
    | `supabase/migrations/0005_bootstrap_profile.sql` | `bootstrap_profile()` RPC: creates a missing profile row for the signed-in user |
+   | `supabase/migrations/0006_fail_generation_refund.sql` | `fail_generation()` RPC: atomic refund when a generation fails (debits carry a `generation:<id>` reference) |
 
 3. **Copy the keys** from *Project settings → API* into `.env.local`.
 4. **Auth settings** (*Authentication → Providers*):
@@ -257,6 +258,7 @@ you get from `/api/health` when the key is missing.
 | The dashboard is empty right after setup | Expected: the signup trigger only fires for new accounts, and `supabase/setup.sql` backfills the ones that already existed. |
 | Logged out on every reload | Session cookies are refreshed by the middleware, which now copies them onto its redirects. Make sure `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are present in the environment that **builds** the app (Next inlines them). |
 | Generation fails with 402 | Out of credits: `consume_credits` raised `insufficient_credits`. Top up with the SQL snippet at the end of `supabase/setup.sql`, or subscribe. |
+| Activity shows `-1` with no matching `+1` | Fixed in `fail_generation()`: the refund used to run through the service role, whose PostgREST error was returned as data and never checked, so it failed silently whenever `SUPABASE_SERVICE_ROLE_KEY` was missing. Re-run `supabase/setup.sql` and check the terminal for `CREDIT NOT REFUNDED` if a refund ever fails again. |
 | Generation says **"account is out of credit (quota exceeded)"** | Your provider has no balance. This is not a rate limit: switch `AI_PROVIDER=groq` (free tier) or add billing. |
 | Generation says **"rate limiting requests (429)"** | You are hitting the provider's per-minute limit. Wait a few seconds; credits are refunded on every failure. |
 | Generation says **"API key was rejected (401)"** | The key for the *selected* provider is missing, truncated or revoked. `/api/health` shows which variable it expects and the placeholder it found. |
@@ -319,12 +321,23 @@ ledger.
 
 1. **Sign up** → the `on_auth_user_created` trigger writes the profile row and
    grants the starter quota (100 credits).
-2. **Generation** → `POST /api/generate` calls `consume_credits(1)`. The function
-   is a single atomic `UPDATE … WHERE credits >= amount`, so two parallel
-   requests can never overdraw the account. It returns `insufficient_credits`
-   when the balance is too low and the API answers `402`.
-3. **Failure** → if the provider errors or times out, the route inserts a `failed`
-   generation row and calls `refund_credits`, so users never pay for nothing.
+2. **Reservation** → `POST /api/generate` mints the generation id and calls
+   `consume_credits(1, prompt, { reference: 'generation:<id>' })`. The function is
+   a single atomic `UPDATE … WHERE credits >= amount`, so parallel requests can
+   never overdraw the account, and the reference ties the debit to that specific
+   generation. It raises `insufficient_credits` when the balance is too low, and
+   the API answers `402`. The provider key is validated *before* this point, so a
+   misconfigured installation never touches the balance.
+3. **Failure** → the provider error is handled by one call to
+   `fail_generation(<id>, prompt, model, error)`, which stores the `failed` row
+   **and** refunds the reservation with a `refund:<id>` reference in the same
+   transaction. The refund amount is read from the recorded debit (never from the
+   caller), the unique reference index makes it happen exactly once, and it runs
+   with the user's own session — no service-role key required. The activity list
+   therefore shows a `-1` / `+1` pair for failed runs (net zero), while the
+   `failed` row keeps `credits_used = 0` so the spend metric only counts
+   successful runs. If the refund call itself fails, the route logs
+   `CREDIT NOT REFUNDED for generation …` rather than swallowing it.
 4. **Subscription** → Stripe webhooks call `grant_credits(plan quota, reference)`
    with a unique reference. Replays are ignored, guaranteeing exactly-once
    crediting.

@@ -130,10 +130,14 @@ create unique index if not exists credit_transactions_reference_key
   on public.credit_transactions ((metadata ->> 'reference'))
   where metadata ? 'reference';
 
--- Atomic debit used by POST /api/generate.
+-- Atomic debit used by POST /api/generate. Adding a parameter creates an
+-- overload rather than a replacement, so drop the two-argument version first.
+drop function if exists public.consume_credits(integer, text);
+
 create or replace function public.consume_credits(
   p_amount integer default 1,
-  p_description text default null
+  p_description text default null,
+  p_metadata jsonb default null
 )
 returns integer
 language plpgsql
@@ -163,8 +167,8 @@ begin
     raise exception 'insufficient_credits' using errcode = 'P0001';
   end if;
 
-  insert into public.credit_transactions (user_id, amount, type, description)
-  values (v_user_id, -p_amount, 'debit', p_description);
+  insert into public.credit_transactions (user_id, amount, type, description, metadata)
+  values (v_user_id, -p_amount, 'debit', p_description, p_metadata);
 
   return v_new_balance;
 end;
@@ -205,7 +209,7 @@ $$;
 -- run with the service role from trusted server code.
 revoke all on function public.grant_credits(uuid, integer, text, text, jsonb) from public, anon, authenticated;
 revoke all on function public.refund_credits(uuid, integer, text) from public, anon, authenticated;
-grant execute on function public.consume_credits(integer, text) to authenticated;
+grant execute on function public.consume_credits(integer, text, jsonb) to authenticated;
 grant execute on function public.grant_credits(uuid, integer, text, text, jsonb) to service_role;
 grant execute on function public.refund_credits(uuid, integer, text) to service_role;
 
@@ -270,6 +274,79 @@ $$;
 
 revoke all on function public.bootstrap_profile() from public, anon;
 grant execute on function public.bootstrap_profile() to authenticated;
+
+-- Fail a generation and refund the reservation atomically. Safe for
+-- `authenticated`: it derives the amount from the debit this app recorded for
+-- that generation, only refunds rows stored as 'failed', and the
+-- `refund:<id>` reference makes a second refund impossible.
+create or replace function public.fail_generation(
+  p_generation_id uuid,
+  p_prompt text,
+  p_model text,
+  p_error text
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_amount integer;
+  v_balance integer;
+begin
+  if v_user_id is null then
+    raise exception 'fail_generation: not authenticated' using errcode = '28000';
+  end if;
+
+  insert into public.generations (id, user_id, prompt, model, tokens_used, credits_used, status, error)
+  values (p_generation_id, v_user_id, p_prompt, p_model, 0, 0, 'failed', p_error)
+  on conflict (id) do nothing;
+
+  if not exists (
+    select 1
+      from public.generations
+     where id = p_generation_id
+       and user_id = v_user_id
+       and status = 'failed'
+  ) then
+    select credits into v_balance from public.profiles where id = v_user_id;
+    return coalesce(v_balance, 0);
+  end if;
+
+  select -ct.amount into v_amount
+    from public.credit_transactions ct
+   where ct.user_id = v_user_id
+     and ct.type = 'debit'
+     and ct.metadata ->> 'reference' = 'generation:' || p_generation_id::text;
+
+  if v_amount is not null then
+    with refunded as (
+      insert into public.credit_transactions (user_id, amount, type, description, metadata)
+      values (
+        v_user_id,
+        v_amount,
+        'refund',
+        'Refund: generation ' || p_generation_id::text,
+        jsonb_build_object('reference', 'refund:' || p_generation_id::text)
+      )
+      on conflict do nothing
+      returning 1
+    )
+    update public.profiles
+       set credits = credits + v_amount,
+           updated_at = now()
+     where id = v_user_id
+       and exists (select 1 from refunded);
+  end if;
+
+  select credits into v_balance from public.profiles where id = v_user_id;
+  return coalesce(v_balance, 0);
+end;
+$$;
+
+revoke all on function public.fail_generation(uuid, text, text, text) from public, anon;
+grant execute on function public.fail_generation(uuid, text, text, text) to authenticated;
 
 -- 6. New user bootstrap -----------------------------------------------------
 -- Creates the profile row and the 100-credit signup bonus on every signup.
