@@ -128,3 +128,9 @@ $$;
 revoke all on function public.grant_credits(uuid, integer, text, text, jsonb) from public, anon, authenticated;
 revoke all on function public.refund_credits(uuid, integer, text) from public, anon, authenticated;
 grant execute on function public.consume_credits(integer, text) to authenticated;
+
+-- The service role (Stripe webhook, trusted server code) is the only caller
+-- allowed to grant or refund credits. Explicit, so it does not depend on
+-- default privileges.
+grant execute on function public.grant_credits(uuid, integer, text, text, jsonb) to service_role;
+grant execute on function public.refund_credits(uuid, integer, text) to service_role;

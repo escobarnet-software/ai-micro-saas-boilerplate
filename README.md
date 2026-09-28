@@ -206,6 +206,19 @@ const result = await generateCompletion({ prompt, temperature: 0.4 });
 
 ---
 
+## Troubleshooting
+
+| Symptom | Cause and fix |
+| --- | --- |
+| `ERR_TOO_MANY_REDIRECTS` on `/dashboard` | Historical: the guard sent signed-in users without a profile row to `/login`, and the middleware then sent them straight back to `/dashboard`. `requireProfile()` no longer redirects — it creates the missing row (`createMissingProfile`) — and the middleware skips its "signed in, go to the dashboard" bounce whenever the URL carries `error` or `next`. If it still happens, run `supabase/setup.sql` (idempotent) and confirm your account exists in `public.profiles`. |
+| "This page could not be loaded" | The error boundary in `app/error.tsx` catching a server failure. Apply the schema, fill in `.env.local`, then press **Try again**; the reference digest is in the server logs. |
+| The dashboard is empty right after setup | Expected: the signup trigger only fires for new accounts, and `supabase/setup.sql` backfills the ones that already existed. |
+| Logged out on every reload | Session cookies are refreshed by the middleware, which now copies them onto its redirects. Make sure `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are present in the environment that **builds** the app (Next inlines them). |
+| Generation fails with 402 | Out of credits: `consume_credits` raised `insufficient_credits`. Top up with the SQL snippet at the end of `supabase/setup.sql`, or subscribe. |
+| `?next=` misbehaving | Every `next` value goes through `safeRedirectPath()` (`lib/routes.ts`), which rejects absolute URLs, `//evil.com` and the auth routes themselves. |
+
+---
+
 ## Project structure
 
 ```

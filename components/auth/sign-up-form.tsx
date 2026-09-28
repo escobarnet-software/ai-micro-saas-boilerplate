@@ -28,14 +28,15 @@ import {
 import { Input } from "@/components/ui/input";
 import { OAuthButtons } from "@/components/auth/oauth-buttons";
 import { createClient } from "@/lib/supabase/client";
-import { ROUTES, SIGNUP_BONUS_CREDITS } from "@/lib/routes";
+import { ROUTES, SIGNUP_BONUS_CREDITS, safeRedirectPath } from "@/lib/routes";
 import { signUpSchema, type SignUpValues } from "@/lib/validations";
 
 export function SignUpForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const nextParam = searchParams.get("next");
-  const next = nextParam?.startsWith("/") ? nextParam : ROUTES.dashboard;
+  // Sanitised: an auth route here would loop against the middleware guard.
+  const next = safeRedirectPath(nextParam);
   const [pending, setPending] = useState(false);
   const [awaitingConfirmation, setAwaitingConfirmation] = useState<
     string | null

@@ -206,6 +206,8 @@ $$;
 revoke all on function public.grant_credits(uuid, integer, text, text, jsonb) from public, anon, authenticated;
 revoke all on function public.refund_credits(uuid, integer, text) from public, anon, authenticated;
 grant execute on function public.consume_credits(integer, text) to authenticated;
+grant execute on function public.grant_credits(uuid, integer, text, text, jsonb) to service_role;
+grant execute on function public.refund_credits(uuid, integer, text) to service_role;
 
 -- 6. New user bootstrap -----------------------------------------------------
 -- Creates the profile row and the 100-credit signup bonus on every signup.

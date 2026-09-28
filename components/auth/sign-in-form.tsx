@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ArrowRight, LoaderCircle, Lock, Mail } from "lucide-react";
+import { AlertTriangle, ArrowRight, LoaderCircle, Lock, Mail } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 
@@ -20,13 +20,16 @@ import {
 import { Input } from "@/components/ui/input";
 import { OAuthButtons } from "@/components/auth/oauth-buttons";
 import { createClient } from "@/lib/supabase/client";
-import { ROUTES } from "@/lib/routes";
+import { ROUTES, safeRedirectPath } from "@/lib/routes";
 import { signInSchema, type SignInValues } from "@/lib/validations";
 
 export function SignInForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams.get("next") ?? ROUTES.dashboard;
+  // Sanitised: /login and /signup are never valid destinations, otherwise the
+  // middleware guard would bounce us back here forever.
+  const next = safeRedirectPath(searchParams.get("next"));
+  const authError = searchParams.get("error");
   const [pending, setPending] = useState(false);
 
   const form = useForm<SignInValues>({
@@ -46,7 +49,7 @@ export function SignInForm() {
       }
 
       toast.success("Welcome back");
-      router.replace(next.startsWith("/") ? next : ROUTES.dashboard);
+      router.replace(next);
       router.refresh();
     } catch (error) {
       toast.error("Configuration error", {
@@ -62,6 +65,16 @@ export function SignInForm() {
 
   return (
     <div className="space-y-6">
+      {authError ? (
+        <div
+          role="alert"
+          className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2.5 text-sm text-destructive"
+        >
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+          <p className="leading-relaxed">{authError}</p>
+        </div>
+      ) : null}
+
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
           <FormField

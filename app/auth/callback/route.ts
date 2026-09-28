@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { getSiteUrl } from "@/lib/env";
-import { ROUTES } from "@/lib/routes";
+import { ROUTES, safeRedirectPath } from "@/lib/routes";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
   const nextParam = searchParams.get("next");
-  const next = nextParam?.startsWith("/") ? nextParam : ROUTES.dashboard;
+  const next = safeRedirectPath(nextParam);
   const baseUrl = getSiteUrl() || origin;
 
   const providerError =

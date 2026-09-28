@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { GitHubIcon } from "@/components/shared/brand-icons";
 import { createClient } from "@/lib/supabase/client";
-import { ROUTES } from "@/lib/routes";
+import { ROUTES, safeRedirectPath } from "@/lib/routes";
 
 export function OAuthButtons({ next }: { next: string }) {
   const [pending, setPending] = useState(false);
@@ -16,7 +16,8 @@ export function OAuthButtons({ next }: { next: string }) {
     setPending(true);
     try {
       const supabase = createClient();
-      const redirectTo = `${window.location.origin}${ROUTES.authCallback}?next=${encodeURIComponent(next)}`;
+      const target = safeRedirectPath(next);
+      const redirectTo = `${window.location.origin}${ROUTES.authCallback}?next=${encodeURIComponent(target)}`;
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "github",
         options: { redirectTo },
