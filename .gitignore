@@ -26,6 +26,8 @@ yarn-debug.log*
 yarn-error.log*
 
 # local env files
+# Only .env.example is committed: real keys stay in .env.local (or .env).
+.env
 .env*.local
 
 # vercel
