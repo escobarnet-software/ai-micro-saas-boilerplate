@@ -7,15 +7,48 @@ import { ArrowRight, LayoutDashboard, Menu, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/shared/logo";
 import { mainNav } from "@/lib/site";
+import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
 interface NavbarProps {
+  /**
+   * Server-resolved auth state. When omitted the navbar detects the session
+   * on the client so marketing routes can stay statically rendered.
+   */
   isAuthenticated?: boolean;
 }
 
-export function Navbar({ isAuthenticated = false }: NavbarProps) {
+export function Navbar({ isAuthenticated }: NavbarProps) {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [detected, setDetected] = useState(false);
+
+  useEffect(() => {
+    if (isAuthenticated !== undefined) return;
+
+    let active = true;
+    let unsubscribe: (() => void) | undefined;
+
+    try {
+      const supabase = createClient();
+      void supabase.auth.getUser().then(({ data }) => {
+        if (active) setDetected(Boolean(data.user));
+      });
+      const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (active) setDetected(Boolean(session?.user));
+      });
+      unsubscribe = () => data.subscription.unsubscribe();
+    } catch {
+      // Supabase env vars are not configured yet: stay logged out.
+    }
+
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
+  }, [isAuthenticated]);
+
+  const authenticated = isAuthenticated ?? detected;
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
@@ -57,7 +90,7 @@ export function Navbar({ isAuthenticated = false }: NavbarProps) {
         </div>
 
         <div className="hidden items-center gap-2 md:flex">
-          {isAuthenticated ? (
+          {authenticated ? (
             <Button asChild size="sm">
               <Link href="/dashboard">
                 <LayoutDashboard className="size-4" />
@@ -105,7 +138,7 @@ export function Navbar({ isAuthenticated = false }: NavbarProps) {
               </Link>
             ))}
             <div className="mt-3 flex flex-col gap-2 border-t border-border/80 pt-4">
-              {isAuthenticated ? (
+              {authenticated ? (
                 <Button asChild onClick={() => setOpen(false)}>
                   <Link href="/dashboard">
                     <LayoutDashboard className="size-4" />
