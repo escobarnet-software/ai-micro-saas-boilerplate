@@ -284,10 +284,6 @@ npm run lint     # eslint
 
 Crafted with ❤️ by **Escobar NET** — indie studio shipping AI SaaS, boilerplates and automation.
 
-- 🌐 Website: https://escobarnet.com
-- 💼 GitHub: https://github.com
-- ✉️ Contact: hello@escobarnet.com
-
 > If this boilerplate saved you a weekend, leave a ⭐ — it keeps us building.
 
 ---
