@@ -107,7 +107,9 @@ export async function POST(request: NextRequest) {
       return fail(
         apiFailure(
           "CONFIGURATION_ERROR",
-          "The database schema is incomplete: run supabase/setup.sql so that consume_credits() and fail_generation() exist."
+          /p_metadata/.test(chargeError.message)
+            ? "Your database schema is out of date: consume_credits() exists without the p_metadata parameter. Re-run supabase/setup.sql — it drops the old signature and installs the new one — then try again."
+            : "The database schema is incomplete: run supabase/setup.sql so that consume_credits() and fail_generation() exist, then try again."
         )
       );
     }

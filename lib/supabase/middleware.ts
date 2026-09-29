@@ -73,6 +73,19 @@ export async function updateSession(request: NextRequest) {
     return response;
   }
 
+  const { pathname, search } = request.nextUrl;
+  const isProtected = PROTECTED_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
+  );
+  const isAuthRoute = AUTH_ROUTES.includes(pathname);
+
+  // Everything else (the marketing site, /auth/callback, /api/*) is public, so
+  // it returns before touching Supabase: this removes one auth round trip from
+  // every one of those requests, which is what made the landing page slow.
+  if (!isProtected && !isAuthRoute) {
+    return response;
+  }
+
   const { url, anonKey } = getSupabaseEnv();
 
   const supabase = createServerClient<Database>(url, anonKey, {
@@ -95,12 +108,6 @@ export async function updateSession(request: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
-  const { pathname, search } = request.nextUrl;
-  const isProtected = PROTECTED_PREFIXES.some(
-    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
-  );
-  const isAuthRoute = AUTH_ROUTES.includes(pathname);
 
   // A signed-in visitor is normally pushed away from /login and /signup, but
   // not when the URL carries `error` or `next`: those are produced by the auth

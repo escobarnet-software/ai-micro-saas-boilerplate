@@ -51,9 +51,21 @@ end;
 $$;
 
 -- Hard guarantee that a Stripe reference is only ever credited once.
-create unique index if not exists credit_transactions_reference_key
-  on public.credit_transactions ((metadata ->> 'reference'))
-  where metadata ? 'reference';
+-- Written without the `?` operator on purpose: some SQL editors (including
+-- Supabase's) read a lone `?` as a parameter placeholder and abort the script.
+-- Wrapped so a failure here can never skip the rest of the schema.
+do $do$
+begin
+  execute $ddl$
+    create unique index if not exists credit_transactions_reference_key
+      on public.credit_transactions ((metadata ->> 'reference'))
+      where metadata ->> 'reference' is not null;
+  $ddl$;
+exception
+  when others then
+    raise warning 'grant/refund idempotency index could not be created (%). The ledger stays correct through the exists() checks inside grant_credits() and fail_generation(), but the hard uniqueness guarantee is missing.', sqlerrm;
+end;
+$do$;
 
 create or replace function public.consume_credits(
   p_amount integer default 1,

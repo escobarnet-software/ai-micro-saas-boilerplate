@@ -270,7 +270,42 @@ you get from `/api/health` when the key is missing.
 | Generation says **"rate limiting requests (429)"** | You are hitting the provider's per-minute limit. Wait a few seconds; credits are refunded on every failure. |
 | Generation says **"API key was rejected (401)"** | The key for the *selected* provider is missing, truncated or revoked. `/api/health` shows which variable it expects and the placeholder it found. |
 | Generation says **"model was not found (404)"** | `AI_MODEL` does not exist for the selected provider. Remove it to use the default, or run `/api/health?probe=1` to see the models your key can actually use (the `llama-*` models on Groq are enterprise-only). |
+| Generation says **"schema is out of date: consume_credits() exists without the p_metadata parameter"** | Migration 0006 changed that function's signature, so the copy in your database is the old one. Re-run `supabase/setup.sql` — it drops the two-argument version and installs the new one — and confirm with the query below. |
 | Generation says **"produced no answer within N tokens"** | The model is a reasoning one and spent the budget thinking. Raise `AI_MAX_TOKENS` (default `2048`) or switch `AI_MODEL`. |
+| The SQL script appears to apply only its first half | The idempotency index used to be written with the `?` operator, which some editors read as a parameter placeholder and abort on. It now uses `IS NOT NULL`, and every risky statement (the `auth.users` trigger, the index) runs inside a `DO` block that emits a `WARNING` instead of killing the rest of the script. Re-run it and look for `WARNING` lines in the editor output. |
+| `/dashboard` feels slow | Measure with `npm run build && npm start`: `next dev` compiles each route on first hit, and every dashboard render costs one session verification plus the profile and page queries against your Supabase region. See [Performance notes](#performance-notes). |
+
+### Verifying the database schema
+
+```sql
+-- Expected: 5 rows, including consume_credits(p_amount, p_description, p_metadata)
+-- and fail_generation(p_generation_id, p_prompt, p_model, p_error).
+select p.proname as function, pg_get_function_arguments(p.oid) as arguments
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+ where n.nspname = 'public'
+   and p.proname in ('consume_credits', 'fail_generation', 'bootstrap_profile',
+                     'grant_credits', 'refund_credits')
+ order by p.proname;
+```
+
+`GET /api/health` reports the same thing (`functions[].state`) together with the
+tables, the environment variables and the active AI provider.
+
+---
+
+## Performance notes
+
+- Measure with `npm run build && npm start`: `npm run dev` compiles each route on
+  first hit, which is what makes navigation feel slow the first time.
+- The middleware only talks to Supabase for `/dashboard/*` and the auth pages, so
+  a public request (landing, `/auth/callback`, `/api/*`) costs **zero** auth round
+  trips.
+- `/dashboard` verifies the session once per request (the Supabase SSR pattern),
+  reads the profile once, and fetches the page data in a single parallel batch.
+- The generation call is the slow part by nature: a reasoning model such as
+  `openai/gpt-oss-120b` takes from a few seconds to tens of seconds. The UI shows
+  a skeleton meanwhile, and `AI_TIMEOUT_MS` (default `45000`) caps it.
 | `?next=` misbehaving | Every `next` value goes through `safeRedirectPath()` (`lib/routes.ts`), which rejects absolute URLs, `//evil.com` and the auth routes themselves. |
 
 ---

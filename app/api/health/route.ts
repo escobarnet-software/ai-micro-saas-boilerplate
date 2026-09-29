@@ -163,10 +163,24 @@ export async function GET(request: NextRequest) {
     { table: "generations", ok: !generationsProbe.error, error: generationsProbe.error?.message },
   ];
 
-  // `p_amount: 0` is rejected before anything is charged, so this probe is free.
-  const [bootstrapProbe, consumeProbe] = await Promise.all([
+  // `p_metadata` proves the migration-0006 signature is installed. `p_amount: 0`
+  // is rejected before any write, so the probe is free.
+  // `fail_generation` gets an invalid uuid on purpose: the cast fails before any
+  // write, which only happens when the function exists (a missing one answers
+  // PGRST202 first).
+  const [bootstrapProbe, consumeProbe, failProbe] = await Promise.all([
     supabase.rpc("bootstrap_profile", {}),
-    supabase.rpc("consume_credits", { p_amount: 0, p_description: "health check" }),
+    supabase.rpc("consume_credits", {
+      p_amount: 0,
+      p_description: "health check",
+      p_metadata: { reference: "health-check" },
+    }),
+    supabase.rpc("fail_generation", {
+      p_generation_id: "not-a-uuid",
+      p_prompt: "health check",
+      p_model: "health check",
+      p_error: "health check",
+    }),
   ]);
 
   const functions: FunctionCheck[] = [
@@ -179,6 +193,11 @@ export async function GET(request: NextRequest) {
       name: "consume_credits",
       state: probeState(consumeProbe.error?.code, consumeProbe.error?.message),
       error: consumeProbe.error?.message,
+    },
+    {
+      name: "fail_generation",
+      state: probeState(failProbe.error?.code, failProbe.error?.message),
+      error: failProbe.error?.message,
     },
   ];
 
@@ -226,8 +245,19 @@ export async function GET(request: NextRequest) {
     );
   }
   if (tablesOk && missingFunction("consume_credits")) {
+    const staleSignature = /p_metadata/.test(
+      functions.find((entry) => entry.name === "consume_credits")?.error ?? ""
+    );
+
     hints.push(
-      "Run supabase/setup.sql: consume_credits() is missing, so /api/generate cannot debit credits. Migrations 0002–0005 were never applied to this project."
+      staleSignature
+        ? "Your schema is out of date: consume_credits() exists but without the p_metadata parameter it needs to tie a charge to a generation. Re-run supabase/setup.sql (migration 0006 drops the old signature and installs the new one)."
+        : "Run supabase/setup.sql: consume_credits() is missing, so /api/generate cannot debit credits. Migrations 0002–0006 were never applied to this project."
+    );
+  }
+  if (tablesOk && missingFunction("fail_generation")) {
+    hints.push(
+      "Run supabase/setup.sql: fail_generation() is missing, so a failed generation would keep its charge (migration 0006)."
     );
   }
   if (tablesOk && !user) {
@@ -307,6 +337,7 @@ export async function GET(request: NextRequest) {
         tablesOk &&
         !missingFunction("bootstrap_profile") &&
         !missingFunction("consume_credits") &&
+        !missingFunction("fail_generation") &&
         (!user || profileVisible),
       env,
       ai: {
