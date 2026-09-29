@@ -64,6 +64,10 @@
 
 <img width="1917" height="1078" alt="Captura de pantalla 2026-09-28 215555" src="https://github.com/user-attachments/assets/80092cd7-7e71-49a9-afdc-eaa797be3c61" />
 
+##
+
+| Page | Route | Description |
+|------|-------|-------------|
 | 🔐 Login / Signup | `/login` · `/signup` | Email+password with Zod, GitHub OAuth, PKCE callback |
 
 <img width="1917" height="1072" alt="Captura de pantalla 2026-09-28 215617" src="https://github.com/user-attachments/assets/0cb7886e-da7e-4875-b298-f0a4ffe2e29a" />
@@ -72,21 +76,41 @@
 
 <img width="1917" height="1078" alt="Captura de pantalla 2026-09-28 215711" src="https://github.com/user-attachments/assets/d79568ae-3439-47a4-b24e-ab500d21bd85" />
 
+##
+
+| Page | Route | Description |
+|------|-------|-------------|
 | 📊 Dashboard | `/dashboard` | Credits, generations, spend, recent activity |
+
 
 <img width="1917" height="1078" alt="Captura de pantalla 2026-09-28 220118" src="https://github.com/user-attachments/assets/b6226e8e-284d-4ab9-96bd-06a5cfc678df" />
 
 <img width="1917" height="1078" alt="Captura de pantalla 2026-09-28 220110" src="https://github.com/user-attachments/assets/ca997652-618c-4962-b65c-c251b11e0b35" />
 
+##
+
+| Page | Route | Description |
+|------|-------|-------------|
 | ✍️ Generator | `/dashboard/generator` | Prompt box, examples, skeleton loading, copy, history + delete |
+
 
 <img width="1917" height="1072" alt="Captura de pantalla 2026-09-28 220202" src="https://github.com/user-attachments/assets/b15afa08-bb6a-4564-8a7d-f3d360a881cc" />
 
+##
+
+| Page | Route | Description |
+|------|-------|-------------|
 | 💳 Billing | `/dashboard/billing` | Current plan, credits, subscription id, upgrades, portal |
+
 
 <img width="1917" height="1078" alt="Captura de pantalla 2026-09-28 220212" src="https://github.com/user-attachments/assets/36b6cd0e-2ed6-416b-9ae1-916c9cecfa4a" />
 
+##
+
+| Page | Route | Description |
+|------|-------|-------------|
 | ⚙️ Settings | `/dashboard/settings` | Profile editing via Server Action |
+
 
 > Run `npm run dev` and open **http://localhost:3000**.
 
