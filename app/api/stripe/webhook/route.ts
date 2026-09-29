@@ -8,8 +8,13 @@ import {
   grantPlanCredits,
 } from "@/lib/billing";
 import { getStripeConfig } from "@/lib/env";
-import { getStripe, planForPriceId } from "@/lib/stripe";
-import type { PlanId } from "@/types/supabase";
+import type { PaidPlanId } from "@/lib/plans";
+import {
+  findActiveSubscriptionForCustomer,
+  findActiveSubscriptionForUser,
+  getStripe,
+  planForPriceId,
+} from "@/lib/stripe";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -77,8 +82,10 @@ export async function POST(request: NextRequest) {
         await onCheckoutCompleted(event.data.object);
         break;
       case "invoice.paid":
+      case "invoice.payment_succeeded":
         await onInvoicePaid(event.data.object);
         break;
+      case "customer.subscription.created":
       case "customer.subscription.updated":
         await onSubscriptionUpdated(event.data.object);
         break;
@@ -107,10 +114,18 @@ async function onCheckoutCompleted(session: Stripe.Checkout.Session) {
     session.client_reference_id ??
     (await resolveUserId(session.metadata?.user_id, session.customer));
 
-  if (!userId) return;
+  if (!userId) {
+    console.warn(`[webhook] checkout.session.completed ${session.id}: no user resolved`);
+    return;
+  }
 
   const plan = session.metadata?.plan;
-  if (plan !== "starter" && plan !== "pro") return;
+  if (plan !== "starter" && plan !== "pro") {
+    console.warn(`[webhook] checkout.session.completed ${session.id}: missing/invalid plan metadata (${String(plan)})`);
+    return;
+  }
+
+  console.log(`[webhook] checkout.session.completed ${session.id}: applying ${plan} to user ${userId}`);
 
   await applySubscriptionPlan({
     userId,
@@ -128,14 +143,57 @@ async function onCheckoutCompleted(session: Stripe.Checkout.Session) {
 }
 
 async function onInvoicePaid(invoice: Stripe.Invoice) {
-  // The first invoice is credited by checkout.session.completed.
-  if (invoice.billing_reason === "subscription_create") return;
-
   const userId = await resolveUserId(
     invoice.parent?.subscription_details?.metadata?.user_id,
     invoice.customer
   );
-  if (!userId) return;
+  if (!userId) {
+    console.warn(`[webhook] invoice.paid ${invoice.id}: no user resolved`);
+    return;
+  }
+
+  // Self-heal: if checkout.session.completed failed (e.g. bad service-role
+  // key at the time), the profile may still be on "free". Sync the plan from
+  // the subscription before granting credits so the purchase is not lost.
+  const rawInvoice = invoice as unknown as Record<string, unknown>;
+  const subscriptionId =
+    readId(rawInvoice["subscription"]) ??
+    readId(
+      (rawInvoice["parent"] as Record<string, unknown> | undefined)?.[
+        "subscription_details"
+      ],
+    ) ??
+    readId(
+      (
+        (rawInvoice["parent"] as Record<string, unknown> | undefined)?.[
+          "subscription_details"
+        ] as Record<string, unknown> | undefined
+      )?.["subscription"],
+    );
+  if (subscriptionId) {
+    try {
+      const subscription = await getStripe().subscriptions.retrieve(subscriptionId);
+      const implied = planFromSubscription(subscription);
+      if (implied) {
+        const current = (await findPlan(userId)) ?? "free";
+        if (current !== implied) {
+          console.log(`[webhook] invoice.paid ${invoice.id}: healing plan ${current} -> ${implied} for user ${userId}`);
+          await applySubscriptionPlan({
+            userId,
+            plan: implied,
+            customerId: readId(invoice.customer),
+            subscriptionId: subscription.id,
+          });
+        }
+      }
+    } catch (error) {
+      console.warn(`[webhook] invoice.paid ${invoice.id}: plan heal failed: ${error instanceof Error ? error.message : error}`);
+    }
+  }
+
+  // The first invoice is credited by checkout.session.completed to avoid
+  // double-granting (grant_credits is idempotent by reference, but keep it clean).
+  if (invoice.billing_reason === "subscription_create") return;
 
   const plan = (await findPlan(userId)) ?? "free";
   if (plan === "free") return;
@@ -155,23 +213,23 @@ async function onSubscriptionUpdated(subscription: Stripe.Subscription) {
   );
   if (!userId) return;
 
-  const priceId = readId(subscription.items.data[0]?.price);
-  const planFromPrice = priceId ? planForPriceId(priceId) : null;
-  const planFromMetadata = subscription.metadata?.plan;
-  const resolved =
-    planFromPrice ??
-    (planFromMetadata === "starter" || planFromMetadata === "pro"
-      ? planFromMetadata
-      : null);
-
   const active =
     subscription.status === "active" || subscription.status === "trialing";
 
-  const plan: PlanId = active && resolved ? resolved : "free";
+  // An inactive subscription may be one of several: only downgrade when nothing
+  // else is still granting access.
+  if (!active) {
+    await reconcilePlans({
+      userId,
+      customerId: readId(subscription.customer),
+      endedSubscriptionId: subscription.id,
+    });
+    return;
+  }
 
   await applySubscriptionPlan({
     userId,
-    plan,
+    plan: planFromSubscription(subscription) ?? "free",
     customerId: readId(subscription.customer),
     subscriptionId: subscription.id,
   });
@@ -184,8 +242,61 @@ async function onSubscriptionDeleted(subscription: Stripe.Subscription) {
   );
   if (!userId) return;
 
-  await applySubscriptionPlan({
+  await reconcilePlans({
     userId,
+    customerId: readId(subscription.customer),
+    endedSubscriptionId: subscription.id,
+  });
+}
+
+/** Plan a subscription implies: the price id first, the metadata second. */
+function planFromSubscription(subscription: Stripe.Subscription): PaidPlanId | null {
+  const priceId = readId(subscription.items.data[0]?.price);
+  const planFromPrice = priceId ? planForPriceId(priceId) : null;
+  if (planFromPrice) return planFromPrice;
+
+  const fromMetadata = subscription.metadata?.plan;
+  return fromMetadata === "starter" || fromMetadata === "pro"
+    ? fromMetadata
+    : null;
+}
+
+/**
+ * Keeps the account on the best plan it is still paying for. Without this, a
+ * customer holding two subscriptions (an upgrade, or a second checkout) would be
+ * downgraded to `free` the moment either of them ends.
+ */
+async function reconcilePlans(params: {
+  userId: string;
+  customerId: string | null;
+  endedSubscriptionId: string;
+}): Promise<void> {
+  // Prefer the metadata lookup: it survives a user having several Stripe
+  // customers. Fall back to the customer's subscription list.
+  const remaining =
+    (await findActiveSubscriptionForUser(
+      params.userId,
+      params.endedSubscriptionId
+    )) ??
+    (params.customerId
+      ? await findActiveSubscriptionForCustomer(
+          params.customerId,
+          params.endedSubscriptionId
+        )
+      : null);
+
+  if (remaining) {
+    await applySubscriptionPlan({
+      userId: params.userId,
+      plan: planFromSubscription(remaining) ?? "free",
+      customerId: params.customerId,
+      subscriptionId: remaining.id,
+    });
+    return;
+  }
+
+  await applySubscriptionPlan({
+    userId: params.userId,
     plan: "free",
     subscriptionId: null,
   });
