@@ -111,7 +111,7 @@ billing.
 | `GEMINI_API_KEY` | generation | `AIza…` — only when `AI_PROVIDER=gemini` |
 | `OPENAI_API_KEY` | generation | `sk-…` — only when `AI_PROVIDER=openai` |
 | `AI_MODEL` | generation | Optional: overrides the provider default |
-| `AI_MAX_TOKENS` | generation | Defaults to `1024` |
+| `AI_MAX_TOKENS` | generation | Defaults to `2048` (reasoning models spend part of it thinking) |
 | `AI_TIMEOUT_MS` | generation | Defaults to `45000` |
 | `STRIPE_SECRET_KEY` | billing | `sk_test_…` / `sk_live_…` |
 | `STRIPE_WEBHOOK_SECRET` | billing | `whsec_…` from the webhook endpoint |
@@ -212,11 +212,18 @@ API is OpenAI-compatible.
    GROQ_API_KEY=gsk_...
    ```
 
-3. Default model: `openai/gpt-oss-120b`. Other production models:
-   `openai/gpt-oss-20b` (faster, cheaper), `llama-3.3-70b-versatile`,
-   `llama-3.1-8b-instant`. Override with `AI_MODEL`.
-4. Free-tier limits are per minute: if you hit them, the API answers `429` and
+3. Default model: `openai/gpt-oss-120b`. Verified against a live Groq account,
+   the chat models available on the free tier are `openai/gpt-oss-120b`,
+   `openai/gpt-oss-20b` (faster, cheaper), `qwen/qwen3.8-27b` and `allam-2-7b`
+   — the `llama-*` models are enterprise-only and return `404` on free keys.
+   Override with `AI_MODEL`.
+4. **They are reasoning models**: part of `AI_MAX_TOKENS` is spent thinking
+   (a one-word answer cost 178 tokens), so a very low limit yields no content at
+   all and the API says so explicitly. Default is `2048`.
+5. Free-tier limits are per minute: if you hit them, the API answers `429` and
    the message tells you to wait (the credits are refunded automatically).
+6. Check your key without spending tokens: **`GET /api/health?probe=1`** lists
+   the provider's models and confirms the key and `AI_MODEL` are valid.
 
 ### Google Gemini
 
@@ -262,7 +269,8 @@ you get from `/api/health` when the key is missing.
 | Generation says **"account is out of credit (quota exceeded)"** | Your provider has no balance. This is not a rate limit: switch `AI_PROVIDER=groq` (free tier) or add billing. |
 | Generation says **"rate limiting requests (429)"** | You are hitting the provider's per-minute limit. Wait a few seconds; credits are refunded on every failure. |
 | Generation says **"API key was rejected (401)"** | The key for the *selected* provider is missing, truncated or revoked. `/api/health` shows which variable it expects and the placeholder it found. |
-| Generation says **"model was not found (404)"** | `AI_MODEL` does not exist for the selected provider. Remove it to use the default. |
+| Generation says **"model was not found (404)"** | `AI_MODEL` does not exist for the selected provider. Remove it to use the default, or run `/api/health?probe=1` to see the models your key can actually use (the `llama-*` models on Groq are enterprise-only). |
+| Generation says **"produced no answer within N tokens"** | The model is a reasoning one and spent the budget thinking. Raise `AI_MAX_TOKENS` (default `2048`) or switch `AI_MODEL`. |
 | `?next=` misbehaving | Every `next` value goes through `safeRedirectPath()` (`lib/routes.ts`), which rejects absolute URLs, `//evil.com` and the auth routes themselves. |
 
 ---

@@ -117,7 +117,7 @@ export function getAiConfig(): AiConfig {
     apiKeyEnv: defaults.keyEnv,
     apiKey: read(defaults.keyEnv, process.env[defaults.keyEnv]),
     model: process.env.AI_MODEL?.trim() || defaults.model,
-    maxTokens: positiveInt(process.env.AI_MAX_TOKENS, 1024),
+    maxTokens: positiveInt(process.env.AI_MAX_TOKENS, 2048),
     baseUrl: process.env.AI_BASE_URL?.trim() || defaults.baseUrl,
     timeoutMs: positiveInt(process.env.AI_TIMEOUT_MS, 45_000),
   };

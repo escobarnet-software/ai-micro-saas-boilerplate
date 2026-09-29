@@ -1,5 +1,9 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 
+import {
+  verifyProviderCredentials,
+  type ProviderCredentialCheck,
+} from "@/lib/ai/provider";
 import { describeAiConfig, hasSupabaseEnv } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
 import { apiSuccess } from "@/types/api";
@@ -80,7 +84,10 @@ const isPriceId = (value: string) =>
  * a self-heal, because probing `bootstrap_profile()` creates your profile row
  * when it is missing.
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
+  // ?probe=1 also asks the AI provider whether the key works (costs no tokens).
+  const probe = request.nextUrl.searchParams.get("probe") === "1";
+
   const env = {
     NEXT_PUBLIC_SUPABASE_URL: checkEnv("NEXT_PUBLIC_SUPABASE_URL", isHttpUrl),
     NEXT_PUBLIC_SUPABASE_ANON_KEY: checkEnv(
@@ -271,6 +278,18 @@ export async function GET() {
     );
   }
 
+  let aiProbe: ProviderCredentialCheck | null = null;
+
+  if (probe && ai.keySet) {
+    aiProbe = await verifyProviderCredentials();
+
+    hints.push(
+      aiProbe.ok
+        ? `${ai.label} credentials verified: ${aiProbe.detail}.`
+        : `The ${ai.label} key was rejected: ${aiProbe.detail}`
+    );
+  }
+
   describeEnv("STRIPE_SECRET_KEY", "checkout and the billing portal will fail.");
   describeEnv("STRIPE_WEBHOOK_SECRET", "the webhook signature check will fail.");
   describeEnv(
@@ -296,6 +315,7 @@ export async function GET() {
         model: ai.model,
         keyEnv: ai.keyEnv,
         keySet: ai.keySet,
+        probe: aiProbe,
       },
       tables,
       functions,

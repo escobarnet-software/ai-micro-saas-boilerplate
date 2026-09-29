@@ -35,7 +35,10 @@ export class AIProviderError extends Error {
 
 interface OpenAiCompatibleResponse {
   model?: string;
-  choices?: Array<{ message?: { content?: string | null } }>;
+  choices?: Array<{
+    message?: { content?: string | null; reasoning?: string | null };
+    finish_reason?: string | null;
+  }>;
   usage?: { total_tokens?: number };
 }
 
@@ -94,9 +97,24 @@ async function generateWithOpenAiCompatible(
     timeoutMs: config.timeoutMs,
   });
 
-  const content = data.choices?.[0]?.message?.content?.trim();
+  const choice = data.choices?.[0];
+  const content = choice?.message?.content?.trim();
 
   if (!content) {
+    // Reasoning models (gpt-oss, qwen3…) bill their thinking against the same
+    // budget as the answer, so a small AI_MAX_TOKENS yields no content at all.
+    const spentOnReasoning = Boolean(choice?.message?.reasoning?.trim());
+    const hitTokenLimit = choice?.finish_reason === "length";
+
+    if (spentOnReasoning || hitTokenLimit) {
+      throw new AIProviderError(
+        `The ${config.label} model produced no answer within ${config.maxTokens} tokens (finish_reason: ${
+          choice?.finish_reason ?? "unknown"
+        }): reasoning models spend part of that budget thinking. Raise AI_MAX_TOKENS or switch AI_MODEL.`,
+        { provider: config.label }
+      );
+    }
+
     throw new AIProviderError(
       `The ${config.label} model returned an empty response.`,
       { provider: config.label }
@@ -154,7 +172,8 @@ interface JsonRequestOptions {
   provider: string;
   url: string;
   headers: Record<string, string>;
-  body: unknown;
+  method?: "GET" | "POST";
+  body?: unknown;
   timeoutMs: number;
 }
 
@@ -167,6 +186,7 @@ async function requestJson<T>({
   provider,
   url,
   headers,
+  method = "POST",
   body,
   timeoutMs,
 }: JsonRequestOptions): Promise<T> {
@@ -176,9 +196,9 @@ async function requestJson<T>({
   let response: Response;
   try {
     response = await fetch(url, {
-      method: "POST",
+      method,
       headers: { "Content-Type": "application/json", ...headers },
-      body: JSON.stringify(body),
+      body: body === undefined ? undefined : JSON.stringify(body),
       signal: controller.signal,
       cache: "no-store",
     });
@@ -282,4 +302,57 @@ function extractErrorMessage(raw: string): string | null {
   }
 
   return fallback ? fallback.slice(0, 300) : null;
+}
+
+export interface ProviderCredentialCheck {
+  ok: boolean;
+  detail: string;
+}
+
+/**
+ * Cheap credential check: lists the provider's models, which costs no tokens.
+ * `GET /api/health?probe=1` uses it to tell a working key from a placeholder
+ * before a generation is spent on finding out.
+ */
+export async function verifyProviderCredentials(): Promise<ProviderCredentialCheck> {
+  try {
+    const config = getAiConfig();
+    const url = `${config.baseUrl.replace(/\/$/, "")}/models`;
+    const headers: Record<string, string> =
+      config.provider === "gemini"
+        ? { "x-goog-api-key": config.apiKey }
+        : { Authorization: `Bearer ${config.apiKey}` };
+
+    const data = await requestJson<{
+      data?: Array<{ id?: string }>;
+      models?: Array<{ name?: string }>;
+    }>({
+      provider: config.label,
+      url,
+      headers,
+      method: "GET",
+      timeoutMs: config.timeoutMs,
+    });
+
+    const ids = [
+      ...(data.data ?? []).map((model) => model.id ?? ""),
+      ...(data.models ?? []).map((model) => model.name ?? ""),
+    ].filter(Boolean);
+
+    const available = ids.some(
+      (id) => id === config.model || id.endsWith(`/${config.model}`)
+    );
+
+    return {
+      ok: true,
+      detail: available
+        ? `key accepted, ${config.model} is available (${ids.length} models listed)`
+        : `key accepted, but ${config.model} was not in the list: check AI_MODEL`,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
