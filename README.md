@@ -1,4 +1,4 @@
-# 🚀 AI Micro-SaaS Boilerplate
+<img width="1916" height="1078" alt="Captura de pantalla 2026-09-28 215455" src="https://github.com/user-attachments/assets/b563eb0a-1220-4170-a178-8b90305cae86" /># 🚀 AI Micro-SaaS Boilerplate
 ### _by **Escobar NET**_
 
 <p align="center">
@@ -47,13 +47,51 @@
 | Page | Route | Description |
 |------|-------|-------------|
 | 🏠 Landing | `/` | Dark-first glassy hero, animated grid, product mock, features, pricing, FAQ |
+
+<img width="1917" height="1078" alt="Captura de pantalla 2026-09-28 215605" src="https://github.com/user-attachments/assets/3a89a2d8-b8a1-4a92-9101-126f98ebaa99" />
+
+<img width="1917" height="1078" alt="Captura de pantalla 2026-09-28 215538" src="https://github.com/user-attachments/assets/4ec67a50-bedb-4bd3-980d-ea649c236377" />
+
+<img width="1917" height="1078" alt="Captura de pantalla 2026-09-28 215528" src="https://github.com/user-attachments/assets/ee0ce76b-a191-48e9-a97f-b8c756f5ccd6" />
+
+<img width="1917" height="1078" alt="Captura de pantalla 2026-09-28 215517" src="https://github.com/user-attachments/assets/09882848-706e-48c6-ae14-52cb94453a01" />
+
+<img width="1917" height="1076" alt="Captura de pantalla 2026-09-28 215508" src="https://github.com/user-attachments/assets/02f58c26-c199-4610-a750-6f56e7557074" />
+
+<img width="1916" height="1078" alt="Captura de pantalla 2026-09-28 215455" src="https://github.com/user-attachments/assets/4f020b90-15b1-4395-9e9e-cec39bff2294" />
+
+<img width="1917" height="1078" alt="Captura de pantalla 2026-09-28 215550" src="https://github.com/user-attachments/assets/ee83dd20-8504-4bcc-9b34-c0653c940bb5" />
+
+<img width="1917" height="1078" alt="Captura de pantalla 2026-09-28 215555" src="https://github.com/user-attachments/assets/80092cd7-7e71-49a9-afdc-eaa797be3c61" />
+
 | 🔐 Login / Signup | `/login` · `/signup` | Email+password with Zod, GitHub OAuth, PKCE callback |
+
+<img width="1917" height="1072" alt="Captura de pantalla 2026-09-28 215617" src="https://github.com/user-attachments/assets/0cb7886e-da7e-4875-b298-f0a4ffe2e29a" />
+
+<img width="1917" height="1078" alt="Captura de pantalla 2026-09-28 215626" src="https://github.com/user-attachments/assets/b455d9c3-b348-4f74-9b3a-c22a12e3919f" />
+
+<img width="1917" height="1078" alt="Captura de pantalla 2026-09-28 215711" src="https://github.com/user-attachments/assets/d79568ae-3439-47a4-b24e-ab500d21bd85" />
+
 | 📊 Dashboard | `/dashboard` | Credits, generations, spend, recent activity |
+
+<img width="1917" height="1078" alt="Captura de pantalla 2026-09-28 220118" src="https://github.com/user-attachments/assets/b6226e8e-284d-4ab9-96bd-06a5cfc678df" />
+
+<img width="1917" height="1078" alt="Captura de pantalla 2026-09-28 220110" src="https://github.com/user-attachments/assets/ca997652-618c-4962-b65c-c251b11e0b35" />
+
 | ✍️ Generator | `/dashboard/generator` | Prompt box, examples, skeleton loading, copy, history + delete |
+
+<img width="1917" height="1072" alt="Captura de pantalla 2026-09-28 220202" src="https://github.com/user-attachments/assets/b15afa08-bb6a-4564-8a7d-f3d360a881cc" />
+
 | 💳 Billing | `/dashboard/billing` | Current plan, credits, subscription id, upgrades, portal |
+
+<img width="1917" height="1078" alt="Captura de pantalla 2026-09-28 220212" src="https://github.com/user-attachments/assets/36b6cd0e-2ed6-416b-9ae1-916c9cecfa4a" />
+
 | ⚙️ Settings | `/dashboard/settings` | Profile editing via Server Action |
 
 > Run `npm run dev` and open **http://localhost:3000**.
+
+<img width="1917" height="1077" alt="Captura de pantalla 2026-09-28 220228" src="https://github.com/user-attachments/assets/0f42cf1f-c496-4b4c-9757-45fbc38fedf2" />
+
 
 ---
 
