@@ -326,9 +326,9 @@ Crafted with ❤️ by **Escobar NET** — indie studio shipping AI SaaS, boiler
 
 ---
 
-## 📄 License
+## 📄 Commercial License (Proprietary)
 
-MIT — use it, ship it, sell it. © Escobar NET.
+© 2026 Escobar NET. All rights reserved.
 
 
 | Event | Effect |
