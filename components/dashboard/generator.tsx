@@ -55,6 +55,9 @@ export function Generator({ credits }: { credits: number }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt }),
+        // Slightly above the server's AI_TIMEOUT_MS (45s) so the request always
+        // resolves: without it the button could wait forever on a hung call.
+        signal: AbortSignal.timeout(60_000),
       });
 
       const body = (await response.json()) as ApiResponse<GeneratePayload>;
@@ -80,9 +83,14 @@ export function Generator({ credits }: { credits: number }) {
       });
       router.refresh();
     } catch (error) {
-      toast.error("Network error", {
-        description:
-          error instanceof Error ? error.message : "Please try again.",
+      const timedOut = error instanceof Error && error.name === "TimeoutError";
+
+      toast.error(timedOut ? "Generation timed out" : "Network error", {
+        description: timedOut
+          ? "The provider took longer than 60s. Your credit is refunded automatically — check /api/health."
+          : error instanceof Error
+            ? error.message
+            : "Please try again.",
       });
     } finally {
       setPending(false);

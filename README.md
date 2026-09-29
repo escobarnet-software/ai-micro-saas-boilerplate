@@ -298,6 +298,15 @@ tables, the environment variables and the active AI provider.
 
 - Measure with `npm run build && npm start`: `npm run dev` compiles each route on
   first hit, which is what makes navigation feel slow the first time.
+- **Unstyled flashes / a page that reloads itself are dev-mode symptoms**: Next
+  restarts the dev server when `.env` or a config file changes, and forces a full
+  reload when a module cannot be hot-swapped. During that reload the route's CSS
+  chunk is rebuilt on demand, so the page paints without styles for a moment.
+  Confirm it by looking at the terminal (`Compiling…` / `Restarting…`) and at the
+  browser console (`[Fast Refresh] reloading`); the same app served by
+  `npm start` does not do it.
+- `app/(dashboard)/loading.tsx` gives every `/dashboard/*` navigation an immediate
+  skeleton, so the shell (and its CSS) stays mounted while the server renders.
 - The middleware only talks to Supabase for `/dashboard/*` and the auth pages, so
   a public request (landing, `/auth/callback`, `/api/*`) costs **zero** auth round
   trips.
@@ -305,7 +314,9 @@ tables, the environment variables and the active AI provider.
   reads the profile once, and fetches the page data in a single parallel batch.
 - The generation call is the slow part by nature: a reasoning model such as
   `openai/gpt-oss-120b` takes from a few seconds to tens of seconds. The UI shows
-  a skeleton meanwhile, and `AI_TIMEOUT_MS` (default `45000`) caps it.
+  a skeleton meanwhile and the browser aborts after 60s (`AI_TIMEOUT_MS`, default
+  `45000`, caps it server-side). `AI_MODEL=openai/gpt-oss-20b` is about twice as
+  fast.
 | `?next=` misbehaving | Every `next` value goes through `safeRedirectPath()` (`lib/routes.ts`), which rejects absolute URLs, `//evil.com` and the auth routes themselves. |
 
 ---
